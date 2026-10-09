@@ -129,7 +129,7 @@ to the fp32 segnet/encoder on the single-threaded WASM path (see `todo.md`, Bloc
 ## 3. Create the repository
 
 Pick a name — the model names are already long. Something like
-`liebharc/homr-onnx`.
+`ngbcoder/Homr-onnx`.
 
 1. Create a **public** model repo at <https://huggingface.co/new>.
 
@@ -208,7 +208,7 @@ what `homr/segmentation/inference_segnet.py:87-88` assumes.
 ### Step 4 — upload
 
 ```powershell
-hf upload liebharc/homr-onnx $dest \
+hf upload ngbcoder/Homr-onnx $dest \
   --repo-type model \
   --exclude "*.zip"
 ```
@@ -217,7 +217,7 @@ Or drive it file by file so progress is visible:
 
 ```powershell
 foreach ($f in Get-ChildItem $dest -Filter *.onnx) {
-  hf upload liebharc/homr-onnx $f.FullName --repo-type model
+  hf upload ngbcoder/Homr-onnx $f.FullName --repo-type model
 }
 ```
 
@@ -231,7 +231,7 @@ corporate proxy, and confirm `access-control-allow-origin` is present:
 
 ```powershell
 curl.exe -sD - -o NUL -H 'Origin: https://liebharc.github.io' `
-  'https://huggingface.co/liebharc/homr-onnx/resolve/main/segnet_308-3296ccd40960f90ca6ab9c035cca945675d30a0f_fp16.onnx'
+  'https://huggingface.co/ngbcoder/Homr-onnx/resolve/main/segnet_308-3296ccd40960f90ca6ab9c035cca945675d30a0f_fp16.onnx'
 ```
 
 You are looking for:
@@ -255,7 +255,7 @@ reviewable commit rather than a silent behaviour change:
 
 ```json
 {
-  "repo": "liebharc/homr-onnx",
+  "repo": "ngbcoder/Homr-onnx",
   "revision": "main",
   "models": {
     "segnet": {

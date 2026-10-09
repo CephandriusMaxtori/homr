@@ -27,6 +27,25 @@ Re-verify these before designing around them; each one invalidates work if it is
       `SharedArrayBuffer` is unavailable → onnxruntime-web's WASM backend is
       **single-threaded**. This is why WebGPU is the primary path.
 - [x] The three models are already ONNX. No PyTorch conversion or re-export is needed.
+- [x] Verified tensor interfaces (onnxruntime 1.30, CPU EP):
+
+  | Model | Input | Output |
+  | --- | --- | --- |
+  | segnet | `input` `[batch, 3, 320, 320]`, **dynamic batch**, float32 or float16 | `output` `[batch, 6, 320, 320]` |
+  | encoder | `input` `[1, 1, 256, 1280]`, **fixed** | `output` `[1, 1280, 512]` |
+  | decoder | 39 inputs / 39 outputs | 39 outputs |
+
+  Decoder details that the port depends on:
+  - `rhythms`, `pitchs`, `lifts`, `articulations`, `slurs` → `tensor(int64)`, `[1, 1]`
+  - `context` → float, `[1, 'cache_exists', 512]`
+  - `cache_len` → `tensor(int64)`, `[1]`
+  - `cache_in0..31` → `[1, 8, 'seq_len', 64]` (32 tensors = `decoder_depth 8` × 4)
+  - logits: `out_rhythms` 260, `out_pitchs` 72, `out_lifts` 7, `out_positions` 5,
+    `out_articulations` 62, `out_slurs` 5 — **these confirm the vocabulary sizes**
+  - `attention` is `[2]` — the (x, y) pair written as `<!-- imgpos: … -->`
+  - fp16 variant is fp16 on **all** float tensors including the cache
+  - Note the decoder's *first* input is int64 in both variants, so a naive
+    "is this graph fp16" probe over input types reports fp32 for the fp16 decoder
 - [x] `fractions.Fraction` is load-bearing in the MusicXML generator (dict keys,
       `sorted()`, `min`/`max`) and needs a real BigInt implementation in TypeScript.
 - [x] Three different rounding conventions are in play — Python banker's rounding,
@@ -57,10 +76,14 @@ Re-verify these before designing around them; each one invalidates work if it is
 
 Do not write the port until this passes. If decoder throughput is unusable, stop.
 
-- [ ] Create the public HF repo (e.g. `liebharc/homr-onnx`), follow `HuggingFaceModels.md`
-- [ ] Download + unzip all six `.onnx`; verify each loads in `onnxruntime`
-- [ ] Upload to HF; verify CORS with the curl check in `HuggingFaceModels.md` §4 step 5
+- [x] Create the public HF repo → **`ngbcoder/Homr-onnx`**
+- [x] Download + unzip all six `.onnx`; each loads in `onnxruntime` 1.30 and matches the
+      expected interface. Segnet smoke test: `[1,3,320,320]` fp16 → `[1,6,320,320]`
+- [x] Upload to HF, with a model card (`README.md` at the repo root)
+- [x] **CORS verified** on all six files: `access-control-allow-origin: *`,
+      `accept-ranges: bytes`, HTTP 206 on ranged GET, remote sizes match local
 - [ ] Write `web/public/models.json`, pinned by revision
+      (current revision `fbe8be58a31a38fc3e110b0c9c874053342b7e3b`)
 - [ ] Benchmark **segnet**: one full 1920×2800 page ≈ 54 patches at 320×320, batch 8
 - [ ] Benchmark **encoder**: one 1×1×256×1280 forward
 - [ ] Benchmark **decoder**: a full greedy decode of one staff, count the steps and
