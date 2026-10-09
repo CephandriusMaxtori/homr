@@ -73,9 +73,14 @@ Re-verify these before designing around them; each one invalidates work if it is
 - [ ] Add a "Web demo" section to `README.md`
 - [ ] Add a `docs/web-parity.md` stub describing the tolerance policy
 
-## Block 1 — Phase 0 spike (**go/no-go gate**) — ✅ PASSED
+## Block 1 — Phase 0 spike (**go/no-go gate**) — ⚠️ PARTIAL
 
-**Verdict: GO.** Full measurements and decisions in **`docs/spike-results.md`**.
+**Verdict: not established.** Findings in **`docs/spike-results.md`**.
+
+Settled: model hosting works end to end, ONNX interfaces verified, ORT wiring fixed,
+WASM fp32 confirmed running. **Not settled: whether this is fast enough in a browser.**
+WebGPU rows failed to get an adapter; the WASM decoder failed on a bug in our own
+harness. See "Open questions" in the spike doc.
 
 - [x] Create the public HF repo → **`ngbcoder/Homr-onnx`**
 - [x] Download + unzip all six `.onnx`; each loads in `onnxruntime` 1.30 and matches
@@ -88,20 +93,24 @@ Re-verify these before designing around them; each one invalidates work if it is
 - [x] Generate golden tensors from the Python reference
       (`scripts/dump_spike_tensors.py`): real 256×1280 staff canvases, encoder
       outputs, and reference decode step counts
-- [x] Benchmark **segnet** (6 batches of 8 patches), **encoder** (5 forwards) and
-      **decoder** (a full greedy decode) on **WebGPU** *and* **WASM**
-- [x] Record the numbers on both providers
-- [x] Probe `cv.CLAHE` construction
-- [x] Probe `findContours` return shape
-- [x] Probe `RotatedRect` / `MatVector` / `boxPoints` ergonomics and lifetimes
-- [x] Probe `cv.reduce` for the `find_horizontal_lines` replacement
+- [x] Confirm **WASM fp32** runs: segnet 5.19 s/batch, encoder 2.11 s/forward
+- [!] Benchmark **decoder** on WASM — blocked: `contextReduced` shape bug in our own
+      harness (`bench.ts`), not a model problem. `context` is `[1, 'cache_exists', 512]`
+      and the reduced slice must match the cache sequence length passed in the same step.
+- [!] Benchmark **WebGPU** (fp16) — blocked: `requestAdapter()` returned `null` in the
+      run. An earlier run did report `intel/gen-12lp`, so availability is unproven and
+      the right headless flags are unsettled
+- [x] Probe `findContours` return shape → out-param form, returns `void`
+- [x] Probe `RotatedRect` / `MatVector` ergonomics → named-field object; `.size()`/`.get(i)`
+- [!] Probe `cv.CLAHE` construction — class is present and constructible, but `apply()`
+      did not round-trip a pixel value. Probe bug, not a known gap. **On the critical path.**
+- [!] Probe `cv.reduce` — errored; `CV_16U` likely needs `data_u16`, not `data_u8`
+- [!] Probe `boxPoints` — never reached; `minAreaRect` consumed the failure first
 - [x] **Decision recorded:** WebGPU → fp16, WASM → fp32; fp16 segnet + fp16 encoder +
       fp32 decoder (97.7 MB); no int8 quantisation for now
 
 Findings that changed the plan (all in `docs/spike-results.md`):
 
-- **`cv.CLAHE` works** even though `createCLAHE` is missing — `color_adjust` ports as a
-  constructor call. One of the two known gaps is closed.
 - **`cv.Subdiv2D` is absent** — still the last structural unknown. The dewarper needs a
   lattice-derived triangulation. Prototype this first in Block 4.
 - **`minAreaRect` returns `{center, size, angle}`, not a tuple**, and geometry results
@@ -113,7 +122,10 @@ Findings that changed the plan (all in `docs/spike-results.md`):
   `web/src/spike/opencv-probe.ts` does.
 - **`ort.env.wasm.wasmPaths` must be absolute**, and must be a *directory prefix*
   rather than explicit `{wasm, mjs}` paths, or WebGPU is silently disabled.
+- **All three ORT wasm variants must be served** (plain / jsep / asyncify) — 66 MB.
 - **`io_binding` has no browser equivalent** — the port uses `Tensor` binding.
+- **The decoder's first input is `int64` in both fp32 and fp16 variants**, so probing
+  input types to detect precision reports the fp16 decoder as fp32.
 
 ## Block 2 — Phase 1: pure-logic port (~2,500 lines, low risk)
 
