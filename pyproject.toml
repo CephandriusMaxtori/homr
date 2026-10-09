@@ -23,6 +23,9 @@ dynamic = ["version"]
 cpu = [
   "onnxruntime >= 1.24.1, < 2",
 ]
+gui = [
+  "gradio >= 6.29.1, < 7",
+]
 cuda = [
   "onnxruntime-gpu[cuda,cudnn] >= 1.24.1, < 2",
 ]
@@ -175,3 +178,4 @@ testpaths = ["tests"]
 
 [project.scripts]
 homr = "homr.main:main"
+homr-gui = "homr.gui:main"

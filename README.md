@@ -35,6 +35,27 @@ The easiest way to get started is using `uvx` (`uv` must be installed). Select a
 - Run the program using `poetry run homr <image>`
 - The resulting MusicXML file will be saved in the same directory as the input image
 
+## Graphical interface
+
+`homr` also has a local web GUI with all the command line options, a live log and
+downloads for the results. Install the `gui` extra and run it:
+
+- With uv: `uvx --from 'homr[cpu,gui]' homr-gui`
+- With poetry: `poetry install --extras cpu,gui`, then `poetry run homr-gui`
+- Or without installing: `python -m homr.gui`
+
+It opens in your browser on <http://127.0.0.1:7860> and accepts
+
+- single images, several images, or PDFs (drop them onto the file field)
+- a whole folder, which is processed without merging its results
+- the debug options (`--debug`, `--cache`, staff positions) and the output
+  options (`--output-large-page`, metronome, tempo, single staff)
+- `--host`, `--port` and `--share` to serve it somewhere else
+
+The first run downloads the models (~100 MB); the "Download models" button does
+that up front. Results are saved next to the input unless you set an output
+folder, and can be downloaded from the result list.
+
 ## Run on multiple images
 - Just add your image to the command, for example: `poetry run homr <image_1> <image_2>`
 - This produces one file named `merged_image_1.musicxml`
