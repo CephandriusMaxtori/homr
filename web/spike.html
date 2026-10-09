@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>homr web — Phase 0 spike</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 1.5rem;
+        font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: #14161a;
+        color: #d8dee9;
+      }
+      h1 { font-size: 1.2rem; margin: 0 0 1rem; }
+      #status {
+        padding: .75rem;
+        background: #1e2229;
+        border-left: 3px solid #4c9be8;
+        white-space: pre-wrap;
+      }
+      #log { margin-top: 1rem; max-height: 55vh; overflow: auto; white-space: pre-wrap; }
+      .ok { color: #a3be8c; }
+      .bad { color: #bf616a; }
+      table { border-collapse: collapse; margin-top: 1rem; width: 100%; }
+      th, td { border: 1px solid #2e3440; padding: .3rem .5rem; text-align: right; }
+      th:first-child, td:first-child, td:last-child { text-align: left; }
+      thead th { background: #1e2229; }
+    </style>
+  </head>
+  <body>
+    <h1>homr web — Phase 0 spike (go/no-go)</h1>
+    <div id="status">starting…</div>
+    <div id="log"></div>
+    <table id="results"></table>
+    <script type="module" src="/src/spike/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "name": "homr-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Client-side (browser / GitHub Pages) port of homr, an optical music recognition system.",
+  "license": "AGPL-3.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "spike:serve": "vite --port 5199 --strictPort"
+  },
+  "dependencies": {
+    "@techstark/opencv-js": "5.0.0-release.1",
+    "onnxruntime-web": "1.30.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@types/node": "22.18.9",
+    "typescript": "6.0.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.3"
+  }
+}

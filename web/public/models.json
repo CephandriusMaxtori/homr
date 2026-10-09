@@ -1,0 +1,20 @@
+{
+  "$comment": "ONNX checkpoint manifest for the browser build. Pinned by revision so a model swap is an explicit, reviewable commit. Source of truth is the GitHub release tag 'onnx_checkpoints'; see HuggingFaceModels.md.",
+  "repo": "ngbcoder/Homr-onnx",
+  "revision": "fbe8be58a31a38fc3e110b0c9c874053342b7e3b",
+  "baseUrlTemplate": "https://huggingface.co/{repo}/resolve/{revision}/{file}",
+  "models": {
+    "segnet": {
+      "fp16": "segnet_308-3296ccd40960f90ca6ab9c035cca945675d30a0f_fp16.onnx",
+      "fp32": "segnet_308-3296ccd40960f90ca6ab9c035cca945675d30a0f.onnx"
+    },
+    "encoder": {
+      "fp16": "encoder_pytorch_model_465-597144cab54c8f6d0f6c9619df5c5312694eadd6_fp16.onnx",
+      "fp32": "encoder_pytorch_model_465-597144cab54c8f6d0f6c9619df5c5312694eadd6.onnx"
+    },
+    "decoder": {
+      "fp16": "decoder_pytorch_model_465-597144cab54c8f6d0f6c9619df5c5312694eadd6_fp16.onnx",
+      "fp32": "decoder_pytorch_model_465-597144cab54c8f6d0f6c9619df5c5312694eadd6.onnx"
+    }
+  }
+}

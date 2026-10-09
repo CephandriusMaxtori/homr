@@ -53,6 +53,21 @@ _build/
 /*.txt
 *_ser.txt
 
+# Web build (client-side port). Everything here is reproducible:
+#   npm install && node scripts/copy-wasm.mjs
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+web/.vite/
+# 66 MB of onnxruntime-web WASM binaries, copied out of node_modules.
+web/public/ort/
+# Written by the Playwright spike run.
+web/spike-report.json
+# Golden tensors are large (2.5 MB each) and regenerable via
+# scripts/dump_spike_tensors.py; the summary is committed instead.
+web/public/spike/*.npy
+
 /lightning_logs
 /*.safetensors
 /runs

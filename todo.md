@@ -66,34 +66,54 @@ Re-verify these before designing around them; each one invalidates work if it is
 - [x] Push the outstanding `main` commit to `origin/main`
 - [x] Document the Hugging Face model mirror (`HuggingFaceModels.md`)
 - [x] Add `scripts/hf_model_manifest.py` to report exact `.onnx` sizes and checksums
-- [ ] Create `web/` scaffold: Vite + TypeScript (strict) + Vitest
+- [x] Create `web/` scaffold: Vite + TypeScript (strict) + Vitest + Playwright
+- [x] Add `web/scripts/copy-wasm.mjs` (ORT wasm assets) and `rasterize-svg.mjs`
+- [x] Update `.gitignore` for the web build
 - [ ] Add `.github/workflows/web.yml` — build, test, deploy to `gh-pages`
-- [ ] Update `.gitignore` (`web/node_modules`, `web/dist`, `web/hf-models`, `*.local`)
 - [ ] Add a "Web demo" section to `README.md`
 - [ ] Add a `docs/web-parity.md` stub describing the tolerance policy
 
-## Block 1 — Phase 0 spike (**go/no-go gate**)
+## Block 1 — Phase 0 spike (**go/no-go gate**) — ✅ PASSED
 
-Do not write the port until this passes. If decoder throughput is unusable, stop.
+**Verdict: GO.** Full measurements and decisions in **`docs/spike-results.md`**.
 
 - [x] Create the public HF repo → **`ngbcoder/Homr-onnx`**
-- [x] Download + unzip all six `.onnx`; each loads in `onnxruntime` 1.30 and matches the
-      expected interface. Segnet smoke test: `[1,3,320,320]` fp16 → `[1,6,320,320]`
+- [x] Download + unzip all six `.onnx`; each loads in `onnxruntime` 1.30 and matches
+      the expected interface. Segnet smoke test: `[1,3,320,320]` fp16 → `[1,6,320,320]`
 - [x] Upload to HF, with a model card (`README.md` at the repo root)
 - [x] **CORS verified** on all six files: `access-control-allow-origin: *`,
       `accept-ranges: bytes`, HTTP 206 on ranged GET, remote sizes match local
-- [ ] Write `web/public/models.json`, pinned by revision
-      (current revision `fbe8be58a31a38fc3e110b0c9c874053342b7e3b`)
-- [ ] Benchmark **segnet**: one full 1920×2800 page ≈ 54 patches at 320×320, batch 8
-- [ ] Benchmark **encoder**: one 1×1×256×1280 forward
-- [ ] Benchmark **decoder**: a full greedy decode of one staff, count the steps and
-      measure ms/step (it needs 32 dynamic KV-cache tensors per step)
-- [ ] Record all six numbers on **WebGPU** *and* **WASM**
-- [ ] Confirm `new cv.CLAHE(1.0, 8, 8)` is constructible (only the factory is missing)
-- [ ] Confirm whether `findContours` returns `(contours, hierarchy)` or just `contours`
-- [ ] Confirm the `RotatedRect` / `MatVector` / `Mat` ergonomics and `Mat` lifetime rules
-- [ ] Confirm `cv.reduce` handles the `find_horizontal_lines` histogram replacement
-- [ ] **Decision:** default precision + EP per browser, written into the spike notes
+- [x] Write `web/public/models.json`, pinned by revision
+      (revision `fbe8be58a31a38fc3e110b0c9c874053342b7e3b`)
+- [x] Generate golden tensors from the Python reference
+      (`scripts/dump_spike_tensors.py`): real 256×1280 staff canvases, encoder
+      outputs, and reference decode step counts
+- [x] Benchmark **segnet** (6 batches of 8 patches), **encoder** (5 forwards) and
+      **decoder** (a full greedy decode) on **WebGPU** *and* **WASM**
+- [x] Record the numbers on both providers
+- [x] Probe `cv.CLAHE` construction
+- [x] Probe `findContours` return shape
+- [x] Probe `RotatedRect` / `MatVector` / `boxPoints` ergonomics and lifetimes
+- [x] Probe `cv.reduce` for the `find_horizontal_lines` replacement
+- [x] **Decision recorded:** WebGPU → fp16, WASM → fp32; fp16 segnet + fp16 encoder +
+      fp32 decoder (97.7 MB); no int8 quantisation for now
+
+Findings that changed the plan (all in `docs/spike-results.md`):
+
+- **`cv.CLAHE` works** even though `createCLAHE` is missing — `color_adjust` ports as a
+  constructor call. One of the two known gaps is closed.
+- **`cv.Subdiv2D` is absent** — still the last structural unknown. The dewarper needs a
+  lattice-derived triangulation. Prototype this first in Block 4.
+- **`minAreaRect` returns `{center, size, angle}`, not a tuple**, and geometry results
+  are `MatVector`s that need `.delete()`. `bounding_boxes.py` destructures
+  `box[0][0]` in ~40 places, so a wrapper type is required.
+- **`findContours` uses out-params** and returns `void` — the 4.x JS form is gone.
+- **`imread` / `imwrite` unavailable** (`imgcodecs` disabled) — use `<canvas>`.
+- **The shipped OpenCV.js typings do not match the JS binding.** Probe at runtime, as
+  `web/src/spike/opencv-probe.ts` does.
+- **`ort.env.wasm.wasmPaths` must be absolute**, and must be a *directory prefix*
+  rather than explicit `{wasm, mjs}` paths, or WebGPU is silently disabled.
+- **`io_binding` has no browser equivalent** — the port uses `Tensor` binding.
 
 ## Block 2 — Phase 1: pure-logic port (~2,500 lines, low risk)
 

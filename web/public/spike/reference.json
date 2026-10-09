@@ -1,0 +1,84 @@
+{
+  "page_image": "tabi.png",
+  "page_shape": [
+    2239,
+    1920
+  ],
+  "staff_count": 8,
+  "multi_staff_group_sizes": [
+    1,
+    1,
+    1,
+    1
+  ],
+  "voices": 1,
+  "seg_seconds": 24.295,
+  "canvas": [
+    256,
+    1280
+  ],
+  "staves": [
+    {
+      "index": 0,
+      "canvas_shape": [
+        256,
+        1280
+      ],
+      "context_shape": [
+        1,
+        1280,
+        512
+      ],
+      "context_dtype": "float32",
+      "context_min": -7.944612503051758,
+      "context_max": 6.130880355834961,
+      "context_mean": 0.026903238147497177,
+      "nonzero_fraction": 1.0,
+      "reference_decode_steps": 127,
+      "reference_decode_seconds_cpu": 3.935,
+      "reference_ms_per_step_cpu": 30.98
+    },
+    {
+      "index": 1,
+      "canvas_shape": [
+        256,
+        1280
+      ],
+      "context_shape": [
+        1,
+        1280,
+        512
+      ],
+      "context_dtype": "float32",
+      "context_min": -6.376323223114014,
+      "context_max": 5.917049884796143,
+      "context_mean": 0.03535625338554382,
+      "nonzero_fraction": 1.0,
+      "reference_decode_steps": 166,
+      "reference_decode_seconds_cpu": 6.447,
+      "reference_ms_per_step_cpu": 38.84
+    },
+    {
+      "index": 2,
+      "canvas_shape": [
+        256,
+        1280
+      ],
+      "context_shape": [
+        1,
+        1280,
+        512
+      ],
+      "context_dtype": "float32",
+      "context_min": -6.317613124847412,
+      "context_max": 6.047773361206055,
+      "context_mean": 0.031829677522182465,
+      "nonzero_fraction": 1.0,
+      "reference_decode_steps": 143,
+      "reference_decode_seconds_cpu": 6.088,
+      "reference_ms_per_step_cpu": 42.57
+    }
+  ],
+  "encode_seconds_total": 3.261,
+  "encode_seconds_per_staff": 1.0869
+}
