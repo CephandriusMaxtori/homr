@@ -62,15 +62,54 @@ function now(): number {
 }
 
 function describeError(error: unknown): string {
-  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  // Some ORT failures surface as a bare number (a wasm abort code) with no message.
+  // That is exactly the case we need to label clearly rather than print as-is.
+  if (typeof error === "number") {
+    return `onnxruntime-web error ${error} (bare status code, no message; likely a WASM trap or EP initialisation failure)`;
+  }
+  return String(error);
+}
+
+/**
+ * Sessions are cached and reused, never released.
+ *
+ * The WebGPU execution provider permits only one session to be created at a time:
+ * creating a second while the first is still initialising fails with
+ * "another WebGPU EP inference session is being created." Releasing a session and
+ * immediately creating another also trips this, because release() is asynchronous
+ * and the teardown has not finished when the next create() starts.
+ *
+ * Keeping the sessions alive for the lifetime of the page sidesteps both, and is what
+ * the real app wants anyway — a page converts several images through the same
+ * three sessions, so re-creating them per image would be wasteful.
+ */
+const sessionCache = new Map<string, Promise<ort.InferenceSession>>();
+
+function sessionKey(url: string, provider: ProviderName): string {
+  return `${provider}::${url}`;
 }
 
 async function createSession(url: string, provider: ProviderName): Promise<ort.InferenceSession> {
   configureOrt();
-  return ort.InferenceSession.create(url, {
+  const key = sessionKey(url, provider);
+  const existing = sessionCache.get(key);
+  if (existing) return existing;
+
+  const pending = ort.InferenceSession.create(url, {
     executionProviders: [provider],
     graphOptimizationLevel: "all",
   });
+  sessionCache.set(key, pending);
+  try {
+    return await pending;
+  } catch (error) {
+    // Do not cache a rejection, or every later attempt fails with the first error.
+    sessionCache.delete(key);
+    throw error;
+  }
 }
 
 function zeros(dtype: Dtype, length: number): Uint16Array | Float32Array {
@@ -163,7 +202,6 @@ export async function benchSegnet(
     for (let i = 0; i < iterations; i++) await session.run({ input });
     result.steadyRunSeconds = (now() - t2) / 1000;
     result.iterations = iterations;
-    await session.release();
   } catch (error) {
     result.error = describeError(error);
   }
@@ -206,7 +244,6 @@ export async function benchEncoder(
     for (let i = 0; i < iterations; i++) await session.run({ input });
     result.steadyRunSeconds = (now() - t2) / 1000;
     result.iterations = iterations;
-    await session.release();
   } catch (error) {
     result.error = describeError(error);
   }
@@ -267,11 +304,17 @@ export async function benchDecoder(
       let articulation = token(CONFIG.nonote_token);
       let slur = token(CONFIG.nonote_token);
 
-      // Step 0 starts from an empty cache: decoder_inference.py:init_cache(0).
-      let cache: ort.Tensor[] = Array.from(
-        { length: kvCount },
-        () => new ort.Tensor(dtype, zeros(dtype, heads * headDim), [1, heads, 0, headDim]),
-      );
+      // Step 0 starts from an EMPTY cache: decoder_inference.py:init_cache(cache_len=0)
+      // allocates np.zeros((1, heads, 0, head_dim)), which holds *zero* elements.
+      //
+      // The data buffer must therefore also be empty. Allocating heads*headDim
+      // elements for a [1, heads, 0, headDim] tensor is rejected by onnxruntime-web
+      // with "Tensor's size(0) does not match data length(512)" — 1*8*0*64 is 0, not
+      // 512. This is what made the first decoder benchmark fail.
+      const emptyCache = (): ort.Tensor =>
+        new ort.Tensor(dtype, zeros(dtype, 0), [1, heads, 0, headDim]);
+
+      let cache: ort.Tensor[] = Array.from({ length: kvCount }, emptyCache);
 
       let steps = 0;
       const runStart = now();
@@ -329,7 +372,6 @@ export async function benchDecoder(
       // Not fatal, but a sign the first run was not representative.
       result.error = `note: cold decode produced ${coldSteps} steps, steady produced ${steps}`;
     }
-    await session.release();
   } catch (error) {
     result.error = describeError(error);
   }

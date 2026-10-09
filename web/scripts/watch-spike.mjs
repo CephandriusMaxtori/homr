@@ -7,8 +7,18 @@ import { chromium } from "playwright";
 
 const url = process.argv[2] ?? "http://localhost:5199/spike.html";
 
+// These flags match playwright.config.ts. A run with only
+// --enable-unsafe-webgpu + --ignore-gpu-blocklist got "requestAdapter() returned
+// null" on this machine, while the fuller set resolved an adapter
+// (intel/gen-12lp), so keep the two in sync.
 const browser = await chromium.launch({
-  args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan,WebGPU", "--ignore-gpu-blocklist"],
+  args: [
+    "--enable-unsafe-webgpu",
+    "--enable-features=Vulkan,WebGPU",
+    "--use-angle=default",
+    "--ignore-gpu-blocklist",
+    "--enable-gpu-rasterization",
+  ],
 });
 const page = await browser.newPage();
 

@@ -162,11 +162,6 @@ async function main(): Promise<void> {
   // --- benchmarks ---------------------------------------------------------
   report.webgpu.adapter = await adapterDescription();
   say(`webgpu adapter: ${report.webgpu.adapter}`);
-
-  const providers: ProviderName[] = report.webgpu.available ? ["webgpu", "wasm"] : ["wasm"];
-  const precision = preferredPrecision(report.webgpu.available);
-  report.preferredPrecision = precision;
-  say(`providers: ${providers.join(", ")}  precision: ${precision}`);
   say(`crossOriginIsolated=${report.crossOriginIsolated} (Pages cannot set COOP/COEP)`);
 
   // Measure each provider at ITS preferred precision only.
@@ -176,13 +171,25 @@ async function main(): Promise<void> {
   // decoder 45-90 MB), so all four combinations meant ~300 MB of model traffic and a
   // multi-minute run. The decision being made is "which precision per provider",
   // which the off-diagonal cells cannot inform.
-  const plan: { provider: ProviderName; precision: "fp16" | "fp32" }[] =
-    report.webgpu.available
-      ? [
-          { provider: "webgpu", precision: "fp16" },
-          { provider: "wasm", precision: "fp32" },
-        ]
-      : [{ provider: "wasm", precision: "fp32" }];
+  // `navigator.gpu` existing does not mean an adapter can actually be acquired: in a
+  // headless run it can be present while requestAdapter() returns null, and ORT then
+  // fails with a bare status code rather than a clear message. Fall back to WASM-only
+  // when no adapter is actually obtained.
+  const adapter = report.webgpu.adapter ?? "";
+  const adapterWorks = report.webgpu.available && !/returned null/i.test(adapter);
+  if (report.webgpu.available && !adapterWorks) {
+    report.webgpu.available = false;
+    report.webgpu.detail = `${report.webgpu.detail}; requestAdapter failed -> falling back to wasm`;
+    say("webgpu: navigator.gpu present but no adapter obtained; using wasm only");
+  }
+  report.preferredPrecision = preferredPrecision(adapterWorks);
+
+  const plan: { provider: ProviderName; precision: "fp16" | "fp32" }[] = adapterWorks
+    ? [
+        { provider: "webgpu", precision: "fp16" },
+        { provider: "wasm", precision: "fp32" },
+      ]
+    : [{ provider: "wasm", precision: "fp32" }];
   say(`matrix: ${plan.map((p) => `${p.provider}/${p.precision}`).join(", ")}`);
 
   for (const { provider, precision: prec } of plan) {

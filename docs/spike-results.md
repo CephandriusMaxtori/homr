@@ -80,6 +80,50 @@ Decoder detail:
 fp16?" probe over input types reports the fp16 decoder as fp32. This caused a false
 failure during the spike.
 
+## Verified: the decoder KV cache starts empty, not zero-filled
+
+`decoder_inference.py:init_cache(cache_len=0)` allocates
+`np.zeros((1, heads, 0, head_dim))` — a tensor with a **zero-length** sequence axis,
+holding **zero elements**.
+
+Feeding that shape a full `heads * headDim` buffer fails:
+
+```
+Tensor's size(0) does not match data length(512)
+```
+
+because `1 * 8 * 0 * 64` is 0, not 512. The data buffer has to be empty too. This was
+the cause of the first decoder benchmark failure and is a real constraint on the port:
+the step-0 cache is an empty tensor, not a zero-filled one.
+
+Confirmed against the graph:
+
+| tensor | declared shape |
+| --- | --- |
+| `context` | `[1, 'cache_exists', 512]` |
+| `cache_in0` | `[1, 8, 'seq_len', 64]` |
+| `cache_out0` | `[1, 8, 'seq_len + 1', 64]` |
+
+So after step 0 the cache grows to `seq_len = 1`, and `cache_exists` (the context's
+second axis) must agree with the cache length passed in the same step.
+
+## Verified: WebGPU sessions must be created once and reused
+
+The WebGPU execution provider permits only **one** session to be initialising at a
+time. Two distinct failures follow from getting this wrong:
+
+1. Releasing a session and immediately creating another trips
+   `another WebGPU EP inference session is being created.`, because `release()` is
+   asynchronous and teardown has not finished when the next `create()` begins.
+2. If a session creation never settles, every subsequent attempt reports the same
+   error — the original failure is masked.
+
+The spike originally called `release()` after each benchmark, which is why three
+sessions failed in a row after the first. Sessions are now cached by
+`provider::url` and reused for the page lifetime. This is also what the app should do:
+a page converts several images through the same three sessions, so re-creating them
+per image would be wasteful.
+
 ## Verified: onnxruntime-web wiring
 
 - `wasmPaths` must be an **absolute prefix**. A relative `"ort/"` is parsed as a bare
@@ -153,57 +197,31 @@ The `asyncify` variant was also missing from `public/ort/`; now copied.
 
 | model | provider | prec | result |
 | --- | --- | --- | --- |
-| segnet | webgpu | fp16 | **failed** — `Failed to get GPU adapter` |
-| encoder | webgpu | fp16 | **failed** — same |
+| segnet | webgpu | fp16 | **failed** — bare status `9943672`, no message |
+| encoder | webgpu | fp16 | **failed** — `another WebGPU EP inference session is being created.` |
 | decoder | webgpu | fp16 | **failed** — same |
 | segnet | wasm | fp32 | 5.19 s/batch (8 patches of 320×320) |
 | encoder | wasm | fp32 | 2.11 s/forward |
-| decoder | wasm | fp32 | **failed** — bug in the spike harness, see below |
+| decoder | wasm | fp32 | **not completed** |
 
-The three WebGPU rows are **failures, not measurements**. `requestAdapter()` returned
-`null` in that run. An earlier run with `--enable-unsafe-webgpu` did report an adapter
-(`intel/gen-12lp`), so WebGPU availability here is *unproven and currently flaky*, and
-the headless flags needed to make it reliable have not been settled.
+All three WebGPU rows are **failures, not measurements**.
 
-The decoder failure is **a defect in `web/src/spike/bench.ts`, not in the model**:
+An adapter *is* obtained — `requestAdapter()` returns `intel/gen-12lp`, so
+`navigator.gpu` and the adapter are both fine. The failure is in onnxruntime-web's WebGPU
+execution provider initialising: session creation throws a bare `9943672` with no
+message, and that creation never settles. Every later attempt then reports the
+follow-on `another WebGPU EP inference session is being created.` error, which masks
+the original cause.
 
-```
-Tensor's size(0) does not match data length(512)
-```
+The session-reuse fix (above) resolved the cascade, but the underlying initialisation
+failure stands. **This looks like a headless-environment limitation** rather than a
+model or manifest problem — a software or headless Chromium cannot always bring up the
+WebGPU EP. It needs either a headed browser or a machine where the EP initialises, and
+should not be treated as evidence that WebGPU is unusable in production.
 
-The harness builds `contextReduced` by slicing 512 floats out of the context and
-declaring it `[1, 1, 512]`. The graph declares `context` as `[1, 'cache_exists', 512]`,
-where `cache_exists` must agree with the length of the cache being passed in the same
-step. At step 0 the cache sequence length is 0, so the reduced context has to match
-that, not a hardcoded 1.
-
-This matters beyond the spike: the KV-cache wiring is exactly the risky part, and the
-slicing rule has to be right in the port too. Carried into Block 3 as a known-open item.
-
-### To answer the viability question
-
-Rough estimate from the one data point we do have (WASM fp32 encoder, 2.11 s/forward,
-single-threaded). Extrapolating to a full page is *speculation*, not measurement:
-
-- 8 encoder forwards ≈ 17 s on single-threaded WASM
-- ~1,160 decoder invocations is the dominant cost, and its per-step rate is **unknown**
-  — that is the measurement that was lost
-
-Reproduce with:
-
-```bash
-python scripts/dump_spike_tensors.py <page.png> --out <dir> --max-staves 3
-cp <dir>/staff_0_context.npy web/public/spike/
-cp <dir>/summary.json         web/public/spike/reference.json
-
-cd web
-npm install
-node scripts/copy-wasm.mjs
-npx playwright test          # or: node scripts/watch-spike.mjs
-```
-
-Needs a WebGPU adapter that resolves; on a machine without one, `webgpu` rows will
-fail and only the WASM numbers will be meaningful.
+The harness now falls back to WASM-only when no adapter is obtained, so runs are no
+longer wasted, but the decoder WASM number is still **missing** — the run was
+interrupted before finishing. That is the measurement the viability decision needs.
 
 ## Decisions that stand regardless of performance
 
