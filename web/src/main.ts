@@ -1,51 +1,179 @@
 /**
- * App entry point. Block 5 of todo.md replaces this with the real upload/convert UI.
- * For now it reports which pipeline stages are still unimplemented, so the
- * placeholder does not pretend to work.
+ * Web App Main Controller.
  */
 
-const stages = [
-  ["Block 1", "Phase 0 spike — browser viability", "done"],
-  ["Block 2", "Pure-logic port to MusicXML", "not started"],
-  ["Block 3", "onnxruntime-web inference layer", "not started"],
-  ["Block 4", "OpenCV pipeline port", "not started"],
-  ["Block 5", "UI, Verovio preview, PDF input", "not started"],
-  ["Block 6", "Parity harness and CI", "not started"],
-] as const;
+import ort, { configureOrt } from "./ort.ts";
+import { loadManifest, preferredPrecision } from "./models.ts";
+import { ModelCache } from "./model-cache.ts";
+import { processImagePipeline } from "./pipeline.ts";
 
 const root = document.getElementById("app");
+
 if (root) {
   root.innerHTML = `
-    <main style="font:15px/1.6 system-ui,sans-serif;max-width:46rem;margin:3rem auto;padding:0 1rem">
-      <h1 style="font-size:1.4rem">homr — client-side build</h1>
-      <p>
-        A browser port of <a href="https://github.com/liebharc/homr">homr</a>, an optical
-        music recognition system. Everything runs on your machine: no image is uploaded.
-      </p>
-      <h2 style="font-size:1rem;margin-top:2rem">Progress</h2>
-      <table style="border-collapse:collapse;width:100%">
-        <tbody>
-          ${stavesRow(stages)}
-        </tbody>
-      </table>
-      <p style="margin-top:2rem;color:#666">
-        See <code>todo.md</code> in the repository for the full plan, and
-        <a href="/spike.html">the Phase 0 spike</a> for the measured results.
-      </p>
-    </main>`;
+    <div class="card">
+      <div id="dropzone" class="dropzone">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--muted);margin:0 auto">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <p><strong>Click to choose a sheet music image</strong> or drag & drop here</p>
+        <input type="file" id="fileInput" accept="image/*" style="display:none" />
+      </div>
+      <div id="fileInfo" style="margin-top:1rem;display:none;font-weight:500;color:var(--text)"></div>
+      <div class="actions">
+        <button id="convertBtn" class="btn" disabled>Convert to MusicXML</button>
+        <button id="downloadBtn" class="btn btn-secondary" style="display:none">Download MusicXML</button>
+      </div>
+
+      <div id="progressSection" style="display:none;margin-top:1rem">
+        <div class="progress-bar-container">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
+        <div id="statusText" class="status-text">Ready</div>
+      </div>
+    </div>
+
+    <div id="resultSection" class="card" style="display:none">
+      <h3 style="font-size:1.1rem;margin-bottom:0.75rem">Generated MusicXML Output</h3>
+      <div id="xmlPreview" class="preview-area"></div>
+    </div>
+  `;
 }
 
-function stavesRow(rows: readonly (readonly [string, string, string])[]): string {
-  return rows
-    .map(
-      ([block, label, state]) => `
-      <tr>
-        <td style="padding:.35rem .5rem;border-bottom:1px solid #eee;white-space:nowrap">${block}</td>
-        <td style="padding:.35rem .5rem;border-bottom:1px solid #eee">${label}</td>
-        <td style="padding:.35rem .5rem;border-bottom:1px solid #eee;text-align:right;color:${
-          state === "done" ? "#157f3d" : "#a06000"
-        }">${state}</td>
-      </tr>`,
-    )
-    .join("");
+const fileInput = document.getElementById("fileInput") as HTMLInputElement | null;
+const dropzone = document.getElementById("dropzone");
+const fileInfo = document.getElementById("fileInfo");
+const convertBtn = document.getElementById("convertBtn") as HTMLButtonElement | null;
+const downloadBtn = document.getElementById("downloadBtn") as HTMLButtonElement | null;
+const progressSection = document.getElementById("progressSection");
+const progressBar = document.getElementById("progressBar");
+const statusText = document.getElementById("statusText");
+const resultSection = document.getElementById("resultSection");
+const xmlPreview = document.getElementById("xmlPreview");
+
+let selectedFile: File | null = null;
+let lastResultXml: string | null = null;
+
+if (dropzone && fileInput) {
+  dropzone.addEventListener("click", () => fileInput.click());
+  dropzone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropzone.classList.add("dragover");
+  });
+  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("dragover");
+    if (e.dataTransfer?.files.length) {
+      handleFileSelected(e.dataTransfer.files[0]!);
+    }
+  });
+
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files?.length) {
+      handleFileSelected(fileInput.files[0]!);
+    }
+  });
+}
+
+function handleFileSelected(file: File): void {
+  selectedFile = file;
+  if (fileInfo) {
+    fileInfo.textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    fileInfo.style.display = "block";
+  }
+  if (convertBtn) {
+    convertBtn.disabled = false;
+  }
+}
+
+if (convertBtn) {
+  convertBtn.addEventListener("click", async () => {
+    if (!selectedFile) return;
+
+    convertBtn.disabled = true;
+    if (progressSection) progressSection.style.display = "block";
+    updateProgress("Initializing runtime...", 5);
+
+    try {
+      configureOrt();
+      const manifest = await loadManifest("models.json");
+      const hasWebGpu = typeof (navigator as any).gpu !== "undefined";
+      const precision = preferredPrecision(hasWebGpu);
+
+      const cache = new ModelCache(manifest, {
+        onProgress: (loaded, total, label) => {
+          const pct = total > 0 ? Math.round((loaded / total) * 30) + 5 : 15;
+          updateProgress(`Loading model ${label}...`, pct);
+        },
+      });
+
+      const segnetBytes = await cache.load("segnet", precision);
+      const encoderBytes = await cache.load("encoder", precision);
+      const decoderBytes = await cache.load("decoder", precision);
+
+      updateProgress("Creating inference sessions...", 35);
+      const segnetSession = await ort.InferenceSession.create(segnetBytes);
+      const encoderSession = await ort.InferenceSession.create(encoderBytes);
+      const decoderSession = await ort.InferenceSession.create(decoderBytes);
+
+      updateProgress("Reading image...", 40);
+      const imgBitmap = await createImageBitmap(selectedFile);
+      const canvas = document.createElement("canvas");
+      canvas.width = imgBitmap.width;
+      canvas.height = imgBitmap.height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(imgBitmap, 0, 0);
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      const grayData = new Uint8Array(canvas.width * canvas.height);
+      for (let i = 0; i < grayData.length; i++) {
+        const r = imgData.data[i * 4] ?? 0;
+        const g = imgData.data[i * 4 + 1] ?? 0;
+        const b = imgData.data[i * 4 + 2] ?? 0;
+        grayData[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+      }
+
+      const resultXml = await processImagePipeline(
+        { segnet: segnetSession, encoder: encoderSession, decoder: decoderSession },
+        grayData,
+        canvas.width,
+        canvas.height,
+        {
+          precision,
+          onProgress: ({ stage, percent }) => updateProgress(stage, percent),
+        },
+      );
+
+      lastResultXml = resultXml;
+      if (xmlPreview) xmlPreview.textContent = resultXml;
+      if (resultSection) resultSection.style.display = "block";
+      if (downloadBtn) downloadBtn.style.display = "inline-flex";
+
+    } catch (err: any) {
+      updateProgress(`Error: ${err?.message ?? String(err)}`, 100);
+    } finally {
+      convertBtn.disabled = false;
+    }
+  });
+}
+
+if (downloadBtn) {
+  downloadBtn.addEventListener("click", () => {
+    if (!lastResultXml) return;
+    const blob = new Blob([lastResultXml], { type: "application/xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "result.musicxml";
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+function updateProgress(message: string, percent: number): void {
+  if (statusText) statusText.textContent = message;
+  if (progressBar) progressBar.style.width = `${percent}%`;
 }

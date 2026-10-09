@@ -31,4 +31,8 @@ export default defineConfig({
     fs: { strict: false },
   },
   worker: { format: "es" },
+  // @ts-expect-error vitest config
+  test: {
+    include: ["tests/**/*.test.ts", "src/**/*.test.ts"],
+  },
 });
